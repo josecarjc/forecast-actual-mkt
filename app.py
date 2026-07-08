@@ -181,24 +181,29 @@ st.markdown('<div class="section-header">RESUMO EXECUTIVO</div>', unsafe_allow_h
 
 total_actual = actual["Valor"].sum()
 total_forecast = forecast["Valor"].sum()
-saldo = total_forecast - total_actual
-pct_utilizado = (total_actual / total_forecast * 100) if total_forecast else 0
+
+# Saldo e % utilizado precisam comparar a MESMA janela do Forecast (que só existe pra 2026) —
+# nunca o Actual de todos os anos contra o Forecast de só um ano.
+actual_2026_full = actual[actual["Ano"] == 2026]["Valor"].sum()
+saldo = total_forecast - actual_2026_full
+pct_utilizado = (actual_2026_full / total_forecast * 100) if total_forecast else 0
 
 actual_2026 = actual[actual["Ano"] == 2026]
 forecast_2026_comp = forecast[(forecast["Ano"] == 2026) & (forecast["Mês"] <= ULTIMO_MES_ACTUAL_2026)]
 var_r = actual_2026["Valor"].sum() - forecast_2026_comp["Valor"].sum()
 var_pct = (var_r / forecast_2026_comp["Valor"].sum() * 100) if forecast_2026_comp["Valor"].sum() else 0
 
-meses_com_actual = actual["Mês"].nunique() or 1
-burn_rate = actual["Valor"].sum() / meses_com_actual
+meses_realizados_2026 = actual_2026["Mês"].nunique() or 1
+burn_rate = actual_2026["Valor"].sum() / meses_realizados_2026
 fornecedores_ativos = actual["Fornecedor (Extraído)"].nunique()
 ccs_ativos = df_f["Descrição CC"].nunique()
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Gasto (Actual)", f"R$ {total_actual:,.0f}".replace(",", "."))
-c2.metric("Total Planejado", f"R$ {total_forecast:,.0f}".replace(",", "."))
-c3.metric("Saldo Disponível", f"R$ {saldo:,.0f}".replace(",", "."))
-c4.metric("% Orçamento Utilizado", f"{pct_utilizado:.1f}%")
+c1.caption("todos os anos no filtro selecionado")
+c2.metric("Total Planejado 2026", f"R$ {total_forecast:,.0f}".replace(",", "."))
+c3.metric("Saldo Disponível 2026", f"R$ {saldo:,.0f}".replace(",", "."))
+c4.metric("% Orçamento Utilizado 2026", f"{pct_utilizado:.1f}%")
 
 c5, c6, c7, c8 = st.columns(4)
 c5.metric("Variação F x A (comparável)", f"R$ {var_r:,.0f}".replace(",", "."), f"{var_pct:+.1f}%",
@@ -240,8 +245,10 @@ fa = fa.rename(columns={"Actual": "Actual", "Forecast": "Forecast"})
 fa["Mês_nome"] = [MESES_PT[m] for m in fa.index]
 
 fig1 = go.Figure()
-fig1.add_bar(x=fa["Mês_nome"], y=fa.get("Forecast", 0), name="Forecast", marker_color=NAVY)
-fig1.add_bar(x=fa["Mês_nome"], y=fa.get("Actual", 0), name="Actual", marker_color="#9CA3AF")
+fig1.add_bar(x=fa["Mês_nome"], y=fa.get("Forecast", 0), name="Forecast", marker_color=NAVY,
+             hovertemplate="Forecast: R$ %{y:,.0f}<extra></extra>")
+fig1.add_bar(x=fa["Mês_nome"], y=fa.get("Actual", 0), name="Actual", marker_color="#9CA3AF",
+             hovertemplate="Actual: R$ %{y:,.0f}<extra></extra>")
 fig1.update_layout(barmode="group", height=340, margin=dict(t=10, b=10, l=10, r=10),
                     legend=dict(orientation="h", y=1.1), plot_bgcolor="white")
 st.plotly_chart(fig1, use_container_width=True)
@@ -249,10 +256,13 @@ st.plotly_chart(fig1, use_container_width=True)
 tab_fa = fa.copy()
 tab_fa["Var R$"] = tab_fa.get("Actual", 0) - tab_fa.get("Forecast", 0)
 tab_fa["Var %"] = (tab_fa["Var R$"] / tab_fa.get("Forecast", 1).replace(0, pd.NA) * 100)
+# Meses sem Actual ainda (além do período realizado) não têm variação real — não é "-100%", é "sem dado"
+tab_fa.loc[tab_fa.index > ULTIMO_MES_ACTUAL_2026, ["Var R$", "Var %"]] = pd.NA
 disp = tab_fa[["Mês_nome", "Forecast", "Actual", "Var R$", "Var %"]].rename(columns={"Mês_nome": "Mês"})
 disp = disp.set_index("Mês")
 st.dataframe(
-    disp.style.format({"Forecast": "R$ {:,.0f}", "Actual": "R$ {:,.0f}", "Var R$": "R$ {:,.0f}", "Var %": "{:+.1f}%"}),
+    disp.style.format({"Forecast": "R$ {:,.0f}", "Actual": "R$ {:,.0f}", "Var R$": "R$ {:,.0f}",
+                        "Var %": "{:+.1f}%"}, na_rep="—"),
     use_container_width=True,
 )
 
@@ -309,14 +319,17 @@ cc_tab = cc_tab.sort_values("Actual", ascending=False).head(10)
 colA, colB = st.columns([1, 1])
 with colA:
     st.dataframe(
-        cc_tab.style.format({"Actual": "R$ {:,.0f}", "Forecast": "R$ {:,.0f}", "Var R$": "R$ {:,.0f}", "Var %": "{:+.1f}%"}),
+        cc_tab.style.format({"Actual": "R$ {:,.0f}", "Forecast": "R$ {:,.0f}", "Var R$": "R$ {:,.0f}",
+                              "Var %": "{:+.1f}%"}, na_rep="—"),
         use_container_width=True,
     )
 with colB:
     cc_plot = cc_tab.sort_values("Actual")
     fig2 = go.Figure()
-    fig2.add_bar(y=cc_plot.index, x=cc_plot["Forecast"], name="Forecast", orientation="h", marker_color=NAVY)
-    fig2.add_bar(y=cc_plot.index, x=cc_plot["Actual"], name="Actual", orientation="h", marker_color="#9CA3AF")
+    fig2.add_bar(y=cc_plot.index, x=cc_plot["Forecast"], name="Forecast", orientation="h", marker_color=NAVY,
+                 hovertemplate="Forecast: R$ %{x:,.0f}<extra></extra>")
+    fig2.add_bar(y=cc_plot.index, x=cc_plot["Actual"], name="Actual", orientation="h", marker_color="#9CA3AF",
+                 hovertemplate="Actual: R$ %{x:,.0f}<extra></extra>")
     fig2.update_layout(barmode="group", height=380, margin=dict(t=10, b=10, l=10, r=10),
                         legend=dict(orientation="h", y=1.1), plot_bgcolor="white")
     st.plotly_chart(fig2, use_container_width=True)
@@ -362,6 +375,7 @@ with colC:
 with colD:
     fig3 = px.pie(values=marca_agg.values, names=marca_agg.index, hole=0.5,
                    color_discrete_sequence=px.colors.sequential.Blues_r)
+    fig3.update_traces(hovertemplate="%{label}: R$ %{value:,.0f}<extra></extra>")
     fig3.update_layout(height=340, margin=dict(t=10, b=10, l=10, r=10), showlegend=True)
     st.plotly_chart(fig3, use_container_width=True)
 
@@ -385,7 +399,8 @@ else:
     def cor_var(v):
         return f"color: {RED}; font-weight:700" if v > 0 else f"color: {GREEN}; font-weight:700"
     st.dataframe(
-        alerta_tab.style.format({"Actual": "R$ {:,.0f}", "Forecast": "R$ {:,.0f}", "Var R$": "R$ {:,.0f}", "Var %": "{:+.1f}%"})
+        alerta_tab.style.format({"Actual": "R$ {:,.0f}", "Forecast": "R$ {:,.0f}", "Var R$": "R$ {:,.0f}",
+                                  "Var %": "{:+.1f}%"}, na_rep="—")
         .map(cor_var, subset=["Var R$"]),
         use_container_width=True,
     )
@@ -409,7 +424,8 @@ with colF:
     fig4 = go.Figure()
     for q in ["Q1", "Q2", "Q3", "Q4"]:
         if q in evo_q.columns:
-            fig4.add_bar(x=evo_q.index.astype(str), y=evo_q[q], name=q)
+            fig4.add_bar(x=evo_q.index.astype(str), y=evo_q[q], name=q,
+                         hovertemplate=q + ": R$ %{y:,.0f}<extra></extra>")
     fig4.update_layout(barmode="stack", height=320, margin=dict(t=10, b=10, l=10, r=10),
                         legend=dict(orientation="h", y=1.1), plot_bgcolor="white",
                         colorway=[NAVY, "#4C6EA8", "#9CA3AF", "#D6DEEC"])
