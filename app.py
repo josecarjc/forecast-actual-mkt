@@ -217,7 +217,7 @@ if f_categoria:
 st.markdown(
     f"""
     <div class="main-header">
-        <h1>Dashboard Orçamentário — Marketing · Dorel Juvenile Brasil</h1>
+        <h1>Painel Orçamentário — Marketing</h1>
         <p>Forecast x Actual 2024–2026 · Snapshot estático · Actual 2026 até {MESES_PT[ULTIMO_MES_ACTUAL_2026]}
         · dados consolidados e normalizados a partir da base original</p>
     </div>
