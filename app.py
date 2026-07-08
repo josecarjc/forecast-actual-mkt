@@ -7,7 +7,7 @@ import streamlit as st
 # automaticamente ao tema claro/escuro escolhido pelo usuário/SO.
 # ------------------------------------------------------------------
 st.set_page_config(
-    page_title="Dashboard Orçamentário — Marketing · Dorel Juvenile Brasil",
+    page_title="Painel Orçamentário — Marketing",
     layout="wide",
     initial_sidebar_state="expanded",
 )
