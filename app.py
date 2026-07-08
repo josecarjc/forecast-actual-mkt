@@ -61,6 +61,10 @@ st.markdown(
         border: 1px solid rgba(128,128,128,0.35);
         border-radius: 8px;
         padding: 14px 16px 10px 16px;
+        min-height: 120px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
     }}
     div[data-testid="stMetricLabel"] {{
         font-size: 12px; opacity: 0.75; text-transform: uppercase; font-weight: 600;
@@ -223,7 +227,7 @@ st.markdown(
 
 # ------------------------------------------------------------------
 # Resumo executivo — foco em 2026 (objetivo central do dashboard),
-# histórico multi-ano como nota secundária, não como card.
+# histórico multi-ano como card de fechamento da grade.
 # ------------------------------------------------------------------
 st.markdown('<div class="section-header">RESUMO EXECUTIVO</div>', unsafe_allow_html=True)
 
@@ -238,7 +242,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-total_actual = actual["Valor"].sum()
 total_forecast = forecast["Valor"].sum()
 
 actual_2026_full = actual[actual["Ano"] == 2026]["Valor"].sum()
@@ -256,45 +259,41 @@ burn_rate = actual_2026["Valor"].sum() / meses_realizados_2026
 pct_ano_decorrido = ULTIMO_MES_ACTUAL_2026 / 12 * 100
 desvio_ritmo = pct_utilizado - pct_ano_decorrido
 
-# Saúde orçamentária — é o veredito ("bom ou ruim") que a leitura de 5 segundos precisa
-# encontrar primeiro. Vem antes dos cards de suporte, não depois.
-if var_pct is not None and var_pct > 10:
-    saude, cor = "VERMELHO — gasto acima do planejado, ação necessária", RED
-elif var_pct is not None and var_pct > 3:
-    saude, cor = "AMARELO — levemente acima do proporcional", "#B7791F"
-else:
-    saude, cor = "VERDE — dentro do ritmo esperado", GREEN
-st.markdown(
-    f'<p style="font-size:16px; margin: 4px 0 16px 0;"><b>Saúde orçamentária 2026:</b> '
-    f'<span style="color:{cor}; font-weight:700;">● {saude}</span></p>',
-    unsafe_allow_html=True,
-)
+# Gasto Histórico Total — todos os anos, ignora filtro de Ano, respeita os demais.
+def apply_filters_sem_ano(data):
+    out = data.copy()
+    if f_quarter:
+        out = out[out["Trimestre"].isin(f_quarter)]
+    if f_mes:
+        out = out[out["Mês"].isin(f_mes)]
+    if f_marca:
+        out = out[out["Marca"].isin(f_marca)]
+    if f_cc:
+        out = out[out["Descrição CC"].isin(f_cc)]
+    if f_fornecedor:
+        out = out[out["Fornecedor (Extraído)"].isin(f_fornecedor)]
+    if f_categoria:
+        out = out[out["Descrição Controller"].isin(f_categoria)]
+    return out
+
+gasto_historico = apply_filters_sem_ano(df[df["Tipo"] == "Actual"])["Valor"].sum()
 
 # Linha 1 — Forecast x Actual 2026 (núcleo do dashboard)
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total Planejado 2026", money_str(total_forecast))
-c2.metric("Gasto 2026 (YTD)", money_str(actual_2026_full))
-c3.metric("Saldo Disponível 2026", money_str(saldo))
-c4.metric("% Orçamento Utilizado 2026", pct_str(pct_utilizado, signed=False))
-c4.caption("sobre o orçamento anual (jan–dez)")
+c1.metric("Total Planejado 2026", money_str(total_forecast), delta=None, delta_color="off")
+c2.metric("Gasto 2026 (YTD)", money_str(actual_2026_full), delta=None, delta_color="off")
+c3.metric("Saldo Disponível 2026", money_str(saldo), delta=None, delta_color="off")
+c4.metric("% Orçamento Utilizado 2026", pct_str(pct_utilizado, signed=False), delta=None, delta_color="off")
 
-# Linha 2 — ritmo e contexto
-c5, c6, c7 = st.columns(3)
+# Linha 2 — ritmo, contexto e histórico consolidado
+c5, c6, c7, c8 = st.columns(4)
 c5.metric("Variação F x A (comparável)", money_str(var_r, signed=True),
           pct_str(var_pct) if var_pct is not None else "—", delta_color="inverse")
-c5.caption("vs. Forecast do mesmo período (jan–" + MESES_PT[ULTIMO_MES_ACTUAL_2026] + ")")
 c6.metric("Desvio de Ritmo", f"{desvio_ritmo:+.1f} pp".replace(".", ","),
           f"{pct_ano_decorrido:.0f}% do ano decorrido".replace(".", ","),
           delta_color="off")
-c6.caption("ritmo de consumo vs. calendário")
-c7.metric("Burn Rate Mensal (2026)", money_str(burn_rate))
-c7.caption("gasto médio por mês realizado — padrão em acompanhamento orçamentário")
-
-st.markdown(
-    f'<p class="historico-nota">Gasto histórico total (todos os anos, sob os filtros atuais): '
-    f'<b>{money_str(total_actual)}</b> — fora do escopo de comparação com o Forecast, que existe só para 2026.</p>',
-    unsafe_allow_html=True,
-)
+c7.metric("Burn Rate Mensal (2026)", money_str(burn_rate), delta=None, delta_color="off")
+c8.metric("Gasto Histórico Total", money_str(gasto_historico), delta=None, delta_color="off")
 
 st.markdown(
     '<p class="disclaimer">Dados consolidados e normalizados a partir da base original. '
