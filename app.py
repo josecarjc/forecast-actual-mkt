@@ -22,8 +22,8 @@ BRAND_COLORS = {
     "QUINNY": "#2D2A26",
     "SAFETY 1ST": "#FCD920",
     "TINY LOVE": "#E01920",
-    "MAXI COSI": "#0190BA",
-    "BEBE CONFORT": "#0190BA",  # nome legado da Maxi-Cosi em alguns mercados
+    "MAXI COSI": "#426E90",
+    "BEBE CONFORT": "#426E90",  # nome legado da Maxi-Cosi em alguns mercados
     "VOYAGE": "#F05423",
     "COSCO": "#645EC0",
 }
