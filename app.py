@@ -1,10 +1,10 @@
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import streamlit as st
 
 # ------------------------------------------------------------------
-# Config & style
+# Config & style — CSS usa variáveis do Streamlit para se adaptar
+# automaticamente ao tema claro/escuro escolhido pelo usuário/SO.
 # ------------------------------------------------------------------
 st.set_page_config(
     page_title="Dashboard Orçamentário — Marketing · Dorel Juvenile Brasil",
@@ -13,27 +13,33 @@ st.set_page_config(
 )
 
 NAVY = "#1F3864"
-GRAY_BG = "#F5F6F8"
-GRAY_TEXT = "#6B7280"
 GREEN = "#1E8449"
 RED = "#C0392B"
+NEUTRAL_GRAY = "#9CA3AF"
+
+BRAND_COLORS = {
+    "INFANTI": "#72A9A0",
+    "QUINNY": "#2D2A26",
+    "SAFETY 1ST": "#FCD920",
+    "TINY LOVE": "#E01920",
+    "MAXI COSI": "#0190BA",
+    "BEBE CONFORT": "#0190BA",  # nome legado da Maxi-Cosi em alguns mercados
+    "VOYAGE": "#F05423",
+    "COSCO": "#645EC0",
+}
+BRAND_NEUTRAL = "#B0B4BA"
 
 st.markdown(
     f"""
     <style>
-    .stApp {{ background-color: #FFFFFF; }}
     .main-header {{
         background-color: {NAVY};
         padding: 22px 28px;
         border-radius: 8px;
         margin-bottom: 6px;
     }}
-    .main-header h1 {{
-        color: white; font-size: 26px; margin: 0; font-weight: 700;
-    }}
-    .main-header p {{
-        color: #D6DEEC; font-size: 13px; margin: 4px 0 0 0;
-    }}
+    .main-header h1 {{ color: white; font-size: 26px; margin: 0; font-weight: 700; }}
+    .main-header p {{ color: #D6DEEC; font-size: 13px; margin: 4px 0 0 0; }}
     .section-header {{
         background-color: {NAVY};
         color: white;
@@ -44,25 +50,63 @@ st.markdown(
         margin-top: 26px;
         margin-bottom: 10px;
     }}
+    .periodo-indicador {{
+        font-size: 13px;
+        color: var(--text-color);
+        opacity: 0.75;
+        margin: 2px 0 14px 0;
+    }}
     div[data-testid="stMetric"] {{
-        background-color: {GRAY_BG};
-        border: 1px solid #E3E5E8;
+        background-color: var(--secondary-background-color);
+        border: 1px solid rgba(128,128,128,0.35);
         border-radius: 8px;
         padding: 14px 16px 10px 16px;
     }}
     div[data-testid="stMetricLabel"] {{
-        font-size: 12px; color: {GRAY_TEXT}; text-transform: uppercase; font-weight: 600;
+        font-size: 12px; opacity: 0.75; text-transform: uppercase; font-weight: 600;
     }}
-    div[data-testid="stMetricValue"] {{
-        font-size: 24px; color: #111827; font-weight: 700;
-    }}
-    .disclaimer {{
-        font-size: 12px; color: {GRAY_TEXT}; margin-top: 4px;
-    }}
+    div[data-testid="stMetricValue"] {{ font-size: 22px; font-weight: 700; }}
+    .disclaimer {{ font-size: 12px; opacity: 0.65; margin-top: 4px; }}
+    .historico-nota {{ font-size: 13px; opacity: 0.75; margin-top: 4px; }}
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+# ------------------------------------------------------------------
+# Formatação numérica — padrão brasileiro (ponto milhar, vírgula decimal)
+# ------------------------------------------------------------------
+def money_str(v, signed=False):
+    if v is None or pd.isna(v):
+        return "—"
+    sign = "+" if (signed and v > 0) else ""
+    neg = v < 0
+    v = abs(v)
+    s = f"{v:,.0f}"
+    s = s.replace(",", "§").replace(".", ",").replace("§", ".")
+    return f"{'-' if neg else sign}R$ {s}"
+
+
+def pct_str(v, signed=True, decimals=1):
+    if v is None or pd.isna(v):
+        return "—"
+    s = f"{v:.{decimals}f}"
+    s = s.replace(".", ",")
+    if signed and v > 0:
+        s = "+" + s
+    return f"{s}%"
+
+
+def color_var(v):
+    """Verde = abaixo do Forecast/referência (favorável). Vermelho = acima (desfavorável)."""
+    if v is None or pd.isna(v):
+        return ""
+    if v > 0:
+        return f"color: {RED}; font-weight:600"
+    if v < 0:
+        return f"color: {GREEN}; font-weight:600"
+    return ""
 
 
 # ------------------------------------------------------------------
@@ -76,7 +120,7 @@ def load_data():
         if pd.isna(v):
             return 0.0
         s = str(v).strip()
-        if s == "-" or s == "":
+        if s in ("-", ""):
             return 0.0
         neg = s.startswith("(") and s.endswith(")")
         s = s.replace("(", "").replace(")", "").replace("R$", "").strip()
@@ -103,7 +147,7 @@ MESES_PT = {1: "jan", 2: "fev", 3: "mar", 4: "abr", 5: "mai", 6: "jun",
 ULTIMO_MES_ACTUAL_2026 = int(df.loc[(df["Ano"] == 2026) & (df["Tipo"] == "Actual"), "Mês"].max())
 
 # ------------------------------------------------------------------
-# Sidebar — filtros globais (multi-select nativo)
+# Sidebar — filtros globais
 # ------------------------------------------------------------------
 st.sidebar.markdown("### Filtros")
 st.sidebar.caption("Marca e Fornecedor existem apenas no Actual — não filtram o Forecast.")
@@ -149,16 +193,19 @@ def apply_filters(data):
 
 df_f = apply_filters(df)
 actual = df_f[df_f["Tipo"] == "Actual"]
-forecast = df_f[df_f["Tipo"] == "Forecast"]
 
-# Forecast não tem Marca/Fornecedor reais — filtros dessas dimensões não devem restringir o Forecast
-forecast_dim_free = apply_filters(df[df["Tipo"] == "Forecast"]) if not (f_marca or f_fornecedor) else \
-    df[(df["Tipo"] == "Forecast")].pipe(lambda d: d[d["Ano"].isin(f_ano)] if f_ano else d) \
-        .pipe(lambda d: d[d["Trimestre"].isin(f_quarter)] if f_quarter else d) \
-        .pipe(lambda d: d[d["Mês"].isin(f_mes)] if f_mes else d) \
-        .pipe(lambda d: d[d["Descrição CC"].isin(f_cc)] if f_cc else d) \
-        .pipe(lambda d: d[d["Descrição Controller"].isin(f_categoria)] if f_categoria else d)
-forecast = forecast_dim_free
+forecast = df[df["Tipo"] == "Forecast"].copy()
+if f_ano:
+    forecast = forecast[forecast["Ano"].isin(f_ano)]
+if f_quarter:
+    forecast = forecast[forecast["Trimestre"].isin(f_quarter)]
+if f_mes:
+    forecast = forecast[forecast["Mês"].isin(f_mes)]
+if f_cc:
+    forecast = forecast[forecast["Descrição CC"].isin(f_cc)]
+if f_categoria:
+    forecast = forecast[forecast["Descrição Controller"].isin(f_categoria)]
+# Marca/Fornecedor não existem no Forecast — não filtram essa base, por design.
 
 # ------------------------------------------------------------------
 # Header
@@ -175,15 +222,25 @@ st.markdown(
 )
 
 # ------------------------------------------------------------------
-# Resumo executivo
+# Resumo executivo — foco em 2026 (objetivo central do dashboard),
+# histórico multi-ano como nota secundária, não como card.
 # ------------------------------------------------------------------
 st.markdown('<div class="section-header">RESUMO EXECUTIVO</div>', unsafe_allow_html=True)
+
+if f_ano:
+    periodo_txt = " · ".join(str(a) for a in sorted(f_ano))
+else:
+    periodo_txt = "todos os anos (2024–2026)"
+st.markdown(
+    f'<div class="periodo-indicador">Período em análise: <b>{periodo_txt}</b> · '
+    f'Comparação Forecast x Actual referente a 2026, jan–{MESES_PT[ULTIMO_MES_ACTUAL_2026]} '
+    f'(período com Actual disponível).</div>',
+    unsafe_allow_html=True,
+)
 
 total_actual = actual["Valor"].sum()
 total_forecast = forecast["Valor"].sum()
 
-# Saldo e % utilizado precisam comparar a MESMA janela do Forecast (que só existe pra 2026) —
-# nunca o Actual de todos os anos contra o Forecast de só um ano.
 actual_2026_full = actual[actual["Ano"] == 2026]["Valor"].sum()
 saldo = total_forecast - actual_2026_full
 pct_utilizado = (actual_2026_full / total_forecast * 100) if total_forecast else 0
@@ -191,104 +248,108 @@ pct_utilizado = (actual_2026_full / total_forecast * 100) if total_forecast else
 actual_2026 = actual[actual["Ano"] == 2026]
 forecast_2026_comp = forecast[(forecast["Ano"] == 2026) & (forecast["Mês"] <= ULTIMO_MES_ACTUAL_2026)]
 var_r = actual_2026["Valor"].sum() - forecast_2026_comp["Valor"].sum()
-var_pct = (var_r / forecast_2026_comp["Valor"].sum() * 100) if forecast_2026_comp["Valor"].sum() else 0
+var_pct = (var_r / forecast_2026_comp["Valor"].sum() * 100) if forecast_2026_comp["Valor"].sum() else None
 
 meses_realizados_2026 = actual_2026["Mês"].nunique() or 1
 burn_rate = actual_2026["Valor"].sum() / meses_realizados_2026
-fornecedores_ativos = actual["Fornecedor (Extraído)"].nunique()
-ccs_ativos = df_f["Descrição CC"].nunique()
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total Gasto (Actual)", f"R$ {total_actual:,.0f}".replace(",", "."))
-c1.caption("todos os anos no filtro selecionado")
-c2.metric("Total Planejado 2026", f"R$ {total_forecast:,.0f}".replace(",", "."))
-c3.metric("Saldo Disponível 2026", f"R$ {saldo:,.0f}".replace(",", "."))
-c4.metric("% Orçamento Utilizado 2026", f"{pct_utilizado:.1f}%")
+pct_ano_decorrido = ULTIMO_MES_ACTUAL_2026 / 12 * 100
+desvio_ritmo = pct_utilizado - pct_ano_decorrido
 
-c5, c6, c7, c8 = st.columns(4)
-c5.metric("Variação F x A (comparável)", f"R$ {var_r:,.0f}".replace(",", "."), f"{var_pct:+.1f}%",
-          delta_color="inverse")
-c6.metric("Burn Rate Mensal Médio", f"R$ {burn_rate:,.0f}".replace(",", "."))
-c7.metric("Fornecedores Ativos", f"{fornecedores_ativos}")
-c8.metric("Centros de Custo Ativos", f"{ccs_ativos}")
-
-# Saúde orçamentária
-desvio_pct = var_pct
-if desvio_pct > 10:
+# Saúde orçamentária — é o veredito ("bom ou ruim") que a leitura de 5 segundos precisa
+# encontrar primeiro. Vem antes dos cards de suporte, não depois.
+if var_pct is not None and var_pct > 10:
     saude, cor = "VERMELHO — gasto acima do planejado, ação necessária", RED
-elif desvio_pct > 3:
+elif var_pct is not None and var_pct > 3:
     saude, cor = "AMARELO — levemente acima do proporcional", "#B7791F"
 else:
     saude, cor = "VERDE — dentro do ritmo esperado", GREEN
 st.markdown(
-    f'<p style="margin-top:8px;"><b>Saúde orçamentária:</b> '
+    f'<p style="font-size:16px; margin: 4px 0 16px 0;"><b>Saúde orçamentária 2026:</b> '
     f'<span style="color:{cor}; font-weight:700;">● {saude}</span></p>',
+    unsafe_allow_html=True,
+)
+
+# Linha 1 — Forecast x Actual 2026 (núcleo do dashboard)
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Total Planejado 2026", money_str(total_forecast))
+c2.metric("Gasto 2026 (YTD)", money_str(actual_2026_full))
+c3.metric("Saldo Disponível 2026", money_str(saldo))
+c4.metric("% Orçamento Utilizado 2026", pct_str(pct_utilizado, signed=False))
+c4.caption("sobre o orçamento anual (jan–dez)")
+
+# Linha 2 — ritmo e contexto
+c5, c6, c7 = st.columns(3)
+c5.metric("Variação F x A (comparável)", money_str(var_r, signed=True),
+          pct_str(var_pct) if var_pct is not None else "—", delta_color="inverse")
+c5.caption("vs. Forecast do mesmo período (jan–" + MESES_PT[ULTIMO_MES_ACTUAL_2026] + ")")
+c6.metric("Desvio de Ritmo", f"{desvio_ritmo:+.1f} pp".replace(".", ","),
+          f"{pct_ano_decorrido:.0f}% do ano decorrido".replace(".", ","),
+          delta_color="off")
+c6.caption("ritmo de consumo vs. calendário")
+c7.metric("Burn Rate Mensal (2026)", money_str(burn_rate))
+c7.caption("gasto médio por mês realizado — padrão em acompanhamento orçamentário")
+
+st.markdown(
+    f'<p class="historico-nota">Gasto histórico total (todos os anos, sob os filtros atuais): '
+    f'<b>{money_str(total_actual)}</b> — fora do escopo de comparação com o Forecast, que existe só para 2026.</p>',
     unsafe_allow_html=True,
 )
 
 st.markdown(
     '<p class="disclaimer">Dados consolidados e normalizados a partir da base original. '
     'Ajustes de taxonomia (agrupamento de categorias) foram feitos por leitura automática de texto '
-    'e ainda dependem de validação da área de Marketing. Fornecedor extraído por heurística do campo '
-    'Histórico — aproximado, não é um cadastro de fornecedor limpo.</p>',
+    'e ainda dependem de validação da área de Marketing. Fornecedor extraído por heurística do '
+    'campo Histórico — aproximado, não é um cadastro de fornecedor limpo.</p>',
     unsafe_allow_html=True,
 )
 
 # ------------------------------------------------------------------
-# 1. Forecast x Actual mensal
+# 1. Forecast x Actual mensal — tabela transposta (meses em coluna)
 # ------------------------------------------------------------------
 st.markdown('<div class="section-header">1 · FORECAST x ACTUAL — COMPARAÇÃO MENSAL 2026</div>', unsafe_allow_html=True)
 st.caption("Variação calculada apenas no período com Actual disponível (jan–" + MESES_PT[ULTIMO_MES_ACTUAL_2026] + ").")
 
 fa = df[df["Ano"] == 2026].groupby(["Mês", "Tipo"])["Valor"].sum().unstack(fill_value=0).reindex(range(1, 13), fill_value=0)
-fa = fa.rename(columns={"Actual": "Actual", "Forecast": "Forecast"})
 fa["Mês_nome"] = [MESES_PT[m] for m in fa.index]
 
 fig1 = go.Figure()
 fig1.add_bar(x=fa["Mês_nome"], y=fa.get("Forecast", 0), name="Forecast", marker_color=NAVY,
-             hovertemplate="Forecast: R$ %{y:,.0f}<extra></extra>")
-fig1.add_bar(x=fa["Mês_nome"], y=fa.get("Actual", 0), name="Actual", marker_color="#9CA3AF",
-             hovertemplate="Actual: R$ %{y:,.0f}<extra></extra>")
+             customdata=[money_str(v) for v in fa.get("Forecast", 0)],
+             hovertemplate="Forecast: %{customdata}<extra></extra>")
+fig1.add_bar(x=fa["Mês_nome"], y=fa.get("Actual", 0), name="Actual", marker_color=NEUTRAL_GRAY,
+             customdata=[money_str(v) for v in fa.get("Actual", 0)],
+             hovertemplate="Actual: %{customdata}<extra></extra>")
 fig1.update_layout(barmode="group", height=340, margin=dict(t=10, b=10, l=10, r=10),
-                    legend=dict(orientation="h", y=1.1), plot_bgcolor="white")
+                    legend=dict(orientation="h", y=1.1), plot_bgcolor="rgba(0,0,0,0)")
 st.plotly_chart(fig1, use_container_width=True)
 
 tab_fa = fa.copy()
 tab_fa["Var R$"] = tab_fa.get("Actual", 0) - tab_fa.get("Forecast", 0)
-tab_fa["Var %"] = (tab_fa["Var R$"] / tab_fa.get("Forecast", 1).replace(0, pd.NA) * 100)
-# Meses sem Actual ainda (além do período realizado) não têm variação real — não é "-100%", é "sem dado"
-tab_fa.loc[tab_fa.index > ULTIMO_MES_ACTUAL_2026, ["Var R$", "Var %"]] = pd.NA
-disp = tab_fa[["Mês_nome", "Forecast", "Actual", "Var R$", "Var %"]].rename(columns={"Mês_nome": "Mês"})
-disp = disp.set_index("Mês")
-st.dataframe(
-    disp.style.format({"Forecast": "R$ {:,.0f}", "Actual": "R$ {:,.0f}", "Var R$": "R$ {:,.0f}",
-                        "Var %": "{:+.1f}%"}, na_rep="—"),
-    use_container_width=True,
-)
+tab_fa["Var %"] = tab_fa["Var R$"] / tab_fa.get("Forecast", 1).replace(0, pd.NA) * 100
+# Meses futuros (sem Actual real ainda): não é "-100%", é ausência de dado — deixa em branco.
+mask_futuro = tab_fa.index > ULTIMO_MES_ACTUAL_2026
+tab_fa.loc[mask_futuro, "Actual"] = pd.NA
+tab_fa.loc[mask_futuro, ["Var R$", "Var %"]] = pd.NA
+
+tab_fa_t = tab_fa.set_index("Mês_nome")[["Forecast", "Actual", "Var R$", "Var %"]].T
+tab_fa_t = tab_fa_t.reindex(columns=[MESES_PT[m] for m in range(1, 13)])
+
+sty = tab_fa_t.style.format(money_str, subset=pd.IndexSlice[["Forecast", "Actual", "Var R$"], :])
+sty = sty.format(lambda v: pct_str(v, signed=True), subset=pd.IndexSlice[["Var %"], :])
+sty = sty.map(color_var, subset=pd.IndexSlice[["Var R$", "Var %"], :])
+st.dataframe(sty, use_container_width=True)
 
 # ------------------------------------------------------------------
-# 2. Ritmo do orçamento (pacing)
+# 2. Fornecedores — lista completa, rolagem interna
 # ------------------------------------------------------------------
-st.markdown('<div class="section-header">2 · RITMO DO ORÇAMENTO (PACING)</div>', unsafe_allow_html=True)
-pct_ano_decorrido = ULTIMO_MES_ACTUAL_2026 / 12 * 100
-total_forecast_2026 = df[(df["Ano"] == 2026) & (df["Tipo"] == "Forecast")]["Valor"].sum()
-total_actual_2026 = df[(df["Ano"] == 2026) & (df["Tipo"] == "Actual")]["Valor"].sum()
-pct_orcamento_consumido = (total_actual_2026 / total_forecast_2026 * 100) if total_forecast_2026 else 0
-desvio_ritmo = pct_orcamento_consumido - pct_ano_decorrido
-
-r1, r2, r3 = st.columns(3)
-r1.metric("% do ano decorrido", f"{pct_ano_decorrido:.1f}%")
-r2.metric("% do orçamento anual já consumido", f"{pct_orcamento_consumido:.1f}%")
-r3.metric("Desvio de ritmo", f"{desvio_ritmo:+.1f} pp", delta_color="inverse" if desvio_ritmo > 0 else "normal")
-
-# ------------------------------------------------------------------
-# 3. Fornecedores (só tabela — sem gráfico redundante)
-# ------------------------------------------------------------------
-st.markdown('<div class="section-header">3 · FORNECEDORES</div>', unsafe_allow_html=True)
-st.caption("Ranking por valor gasto (Actual). Fornecedor extraído do texto do Histórico — aproximado.")
+st.markdown('<div class="section-header">2 · FORNECEDORES</div>', unsafe_allow_html=True)
+fornecedores_ativos = actual["Fornecedor (Extraído)"].nunique()
+st.caption(f"Ranking por valor gasto (Actual) · {fornecedores_ativos} fornecedores distintos no filtro atual. "
+           "Fornecedor extraído do texto do Histórico — aproximado.")
 
 forn = actual.groupby("Fornecedor (Extraído)")["Valor"].sum().sort_values(ascending=False)
-forn = forn[forn.index != "Não identificado"].head(15)
+forn = forn[forn.index != "Não identificado"]
 total_forn = actual["Valor"].sum()
 tab_forn = pd.DataFrame({
     "Fornecedor": forn.index,
@@ -298,46 +359,53 @@ tab_forn = pd.DataFrame({
 tab_forn["% Acumulado"] = tab_forn["% Participação"].cumsum()
 st.dataframe(
     tab_forn.set_index("Fornecedor").style.format(
-        {"Valor": "R$ {:,.0f}", "% Participação": "{:.1f}%", "% Acumulado": "{:.1f}%"}
+        {"Valor": money_str, "% Participação": pct_str, "% Acumulado": pct_str}
     ).bar(subset=["Valor"], color=NAVY),
     use_container_width=True,
+    height=420,
 )
 
 # ------------------------------------------------------------------
-# 4. Centro de Custo
+# 3. Centro de Custo
 # ------------------------------------------------------------------
-st.markdown('<div class="section-header">4 · CENTRO DE CUSTO</div>', unsafe_allow_html=True)
-st.caption("Actual vs Forecast por Centro de Custo, período comparável 2026 (jan–" + MESES_PT[ULTIMO_MES_ACTUAL_2026] + ").")
+st.markdown('<div class="section-header">3 · CENTRO DE CUSTO</div>', unsafe_allow_html=True)
+ccs_ativos = df_f["Descrição CC"].nunique()
+st.caption(f"Actual vs Forecast por Centro de Custo, período comparável 2026 (jan–{MESES_PT[ULTIMO_MES_ACTUAL_2026]}) "
+           f"· {ccs_ativos} centros de custo ativos no filtro atual.")
 
 cc_actual = actual[actual["Ano"] == 2026].groupby("Descrição CC")["Valor"].sum()
 cc_forecast = forecast[(forecast["Ano"] == 2026) & (forecast["Mês"] <= ULTIMO_MES_ACTUAL_2026)].groupby("Descrição CC")["Valor"].sum()
 cc_tab = pd.DataFrame({"Actual": cc_actual, "Forecast": cc_forecast}).fillna(0)
 cc_tab["Var R$"] = cc_tab["Actual"] - cc_tab["Forecast"]
-cc_tab["Var %"] = (cc_tab["Var R$"] / cc_tab["Forecast"].replace(0, pd.NA) * 100)
+cc_tab["Var %"] = cc_tab["Var R$"] / cc_tab["Forecast"].replace(0, pd.NA) * 100
 cc_tab = cc_tab.sort_values("Actual", ascending=False).head(10)
 
 colA, colB = st.columns([1, 1])
 with colA:
     st.dataframe(
-        cc_tab.style.format({"Actual": "R$ {:,.0f}", "Forecast": "R$ {:,.0f}", "Var R$": "R$ {:,.0f}",
-                              "Var %": "{:+.1f}%"}, na_rep="—"),
+        cc_tab.style.format(
+            {"Actual": money_str, "Forecast": money_str, "Var R$": lambda v: money_str(v, signed=True),
+             "Var %": lambda v: pct_str(v, signed=True)}
+        ).map(color_var, subset=["Var R$", "Var %"]),
         use_container_width=True,
     )
 with colB:
     cc_plot = cc_tab.sort_values("Actual")
     fig2 = go.Figure()
     fig2.add_bar(y=cc_plot.index, x=cc_plot["Forecast"], name="Forecast", orientation="h", marker_color=NAVY,
-                 hovertemplate="Forecast: R$ %{x:,.0f}<extra></extra>")
-    fig2.add_bar(y=cc_plot.index, x=cc_plot["Actual"], name="Actual", orientation="h", marker_color="#9CA3AF",
-                 hovertemplate="Actual: R$ %{x:,.0f}<extra></extra>")
+                 customdata=[money_str(v) for v in cc_plot["Forecast"]],
+                 hovertemplate="Forecast: %{customdata}<extra></extra>")
+    fig2.add_bar(y=cc_plot.index, x=cc_plot["Actual"], name="Actual", orientation="h", marker_color=NEUTRAL_GRAY,
+                 customdata=[money_str(v) for v in cc_plot["Actual"]],
+                 hovertemplate="Actual: %{customdata}<extra></extra>")
     fig2.update_layout(barmode="group", height=380, margin=dict(t=10, b=10, l=10, r=10),
-                        legend=dict(orientation="h", y=1.1), plot_bgcolor="white")
+                        legend=dict(orientation="h", y=1.1), plot_bgcolor="rgba(0,0,0,0)")
     st.plotly_chart(fig2, use_container_width=True)
 
 # ------------------------------------------------------------------
-# 5. Categoria de gasto
+# 4. Categoria de gasto
 # ------------------------------------------------------------------
-st.markdown('<div class="section-header">5 · CATEGORIA DE GASTO</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">4 · CATEGORIA DE GASTO</div>', unsafe_allow_html=True)
 st.caption("Ranking por natureza de despesa (Actual, respeita todos os filtros).")
 
 cat = actual.groupby("Descrição Controller")["Valor"].sum().sort_values(ascending=False).head(15)
@@ -349,87 +417,75 @@ tab_cat = pd.DataFrame({
 tab_cat["% Acum."] = tab_cat["% Part."].cumsum()
 st.dataframe(
     tab_cat.set_index("Categoria").style.format(
-        {"Gasto": "R$ {:,.0f}", "% Part.": "{:.1f}%", "% Acum.": "{:.1f}%"}
+        {"Gasto": money_str, "% Part.": pct_str, "% Acum.": pct_str}
     ).bar(subset=["Gasto"], color=NAVY),
     use_container_width=True,
 )
 
 # ------------------------------------------------------------------
-# 6. Marca (2025+)
+# 5. Marca (2025+) — barras horizontais com cores oficiais
 # ------------------------------------------------------------------
-st.markdown('<div class="section-header">6 · MARCA (2025+)</div>', unsafe_allow_html=True)
-st.caption("Marca não existe na base de 2024 — comparação restrita a 2025 e 2026.")
+st.markdown('<div class="section-header">5 · MARCA (2025+)</div>', unsafe_allow_html=True)
+st.caption("Marca não existe na base de 2024 — comparação restrita a 2025 e 2026. "
+           "Cores identificam a marca (identidade visual), não indicam status — só vermelho/verde nas tabelas de variação têm esse sentido.")
 
 marca_df = actual[actual["Ano"] >= 2025]
 marca_agg = marca_df.groupby("Marca")["Valor"].sum().sort_values(ascending=False)
 marca_agg = marca_agg[~marca_agg.index.isin(["Não disponível (2024)"])]
 
-colC, colD = st.columns([1, 1])
+colC, colD = st.columns([1, 1.2])
 with colC:
     tab_marca = pd.DataFrame({"Marca": marca_agg.index, "Gasto": marca_agg.values})
     tab_marca["% Part."] = tab_marca["Gasto"] / tab_marca["Gasto"].sum() * 100
     st.dataframe(
-        tab_marca.set_index("Marca").style.format({"Gasto": "R$ {:,.0f}", "% Part.": "{:.1f}%"}),
+        tab_marca.set_index("Marca").style.format({"Gasto": money_str, "% Part.": pct_str}),
         use_container_width=True,
     )
 with colD:
-    fig3 = px.pie(values=marca_agg.values, names=marca_agg.index, hole=0.5,
-                   color_discrete_sequence=px.colors.sequential.Blues_r)
-    fig3.update_traces(hovertemplate="%{label}: R$ %{value:,.0f}<extra></extra>")
-    fig3.update_layout(height=340, margin=dict(t=10, b=10, l=10, r=10), showlegend=True)
+    marca_plot = marca_agg.sort_values()
+    cores = [BRAND_COLORS.get(m, BRAND_NEUTRAL) for m in marca_plot.index]
+    fig3 = go.Figure(go.Bar(
+        x=marca_plot.values, y=marca_plot.index, orientation="h", marker_color=cores,
+        text=[money_str(v) for v in marca_plot.values], textposition="outside",
+        customdata=[money_str(v) for v in marca_plot.values],
+        hovertemplate="%{y}: %{customdata}<extra></extra>",
+    ))
+    fig3.update_layout(height=340, margin=dict(t=10, b=10, l=10, r=60), plot_bgcolor="rgba(0,0,0,0)")
     st.plotly_chart(fig3, use_container_width=True)
 
 # ------------------------------------------------------------------
-# 7. Alertas de variação (duplo critério)
+# 6. Evolução temporal — quarter x ano, com rótulos e variação YoY
 # ------------------------------------------------------------------
-st.markdown('<div class="section-header">7 · ALERTAS DE VARIAÇÃO</div>', unsafe_allow_html=True)
-st.caption("Entram no alerta apenas itens que ultrapassam os dois critérios: percentual E piso em R$.")
+st.markdown('<div class="section-header">6 · EVOLUÇÃO TEMPORAL</div>', unsafe_allow_html=True)
+st.caption("Actual por trimestre, comparado entre anos equivalentes. 2026 parcial — Q3/Q4 ainda sem dado.")
 
-col_p, col_v = st.columns(2)
-limite_pct = col_p.slider("Limite percentual (%)", 5, 50, 10)
-limite_valor = col_v.number_input("Piso em R$", min_value=0, value=20000, step=5000)
+evo = df[df["Tipo"] == "Actual"].groupby(["Trimestre", "Ano"])["Valor"].sum().unstack("Ano")
+evo = evo.reindex(["Q1", "Q2", "Q3", "Q4"])
 
-alerta_tab = cc_tab.copy()
-alerta_tab = alerta_tab[(alerta_tab["Var %"].abs() >= limite_pct) & (alerta_tab["Var R$"].abs() >= limite_valor)]
-alerta_tab = alerta_tab.sort_values("Var R$", ascending=False)
-
-if alerta_tab.empty:
-    st.info("Nenhum Centro de Custo ultrapassa os dois critérios definidos.")
-else:
-    def cor_var(v):
-        return f"color: {RED}; font-weight:700" if v > 0 else f"color: {GREEN}; font-weight:700"
-    st.dataframe(
-        alerta_tab.style.format({"Actual": "R$ {:,.0f}", "Forecast": "R$ {:,.0f}", "Var R$": "R$ {:,.0f}",
-                                  "Var %": "{:+.1f}%"}, na_rep="—")
-        .map(cor_var, subset=["Var R$"]),
-        use_container_width=True,
+cores_ano = {2024: NEUTRAL_GRAY, 2025: "#4C6EA8", 2026: NAVY}
+fig4 = go.Figure()
+for ano in [2024, 2025, 2026]:
+    y_vals = evo[ano] if ano in evo.columns else pd.Series([None] * 4, index=evo.index)
+    fig4.add_bar(
+        x=evo.index, y=y_vals, name=str(ano), marker_color=cores_ano[ano],
+        text=[money_str(v) if pd.notna(v) else "" for v in y_vals], textposition="outside",
+        customdata=[money_str(v) if pd.notna(v) else "—" for v in y_vals],
+        hovertemplate="%{x} " + str(ano) + ": %{customdata}<extra></extra>",
     )
+fig4.update_layout(barmode="group", height=380, margin=dict(t=30, b=10, l=10, r=10),
+                    legend=dict(orientation="h", y=1.12), plot_bgcolor="rgba(0,0,0,0)")
+st.plotly_chart(fig4, use_container_width=True)
 
-# ------------------------------------------------------------------
-# 8. Evolução temporal
-# ------------------------------------------------------------------
-st.markdown('<div class="section-header">8 · EVOLUÇÃO TEMPORAL</div>', unsafe_allow_html=True)
-st.caption("Actual por ano e trimestre — 2024, 2025, 2026 (parcial).")
+evo_var = pd.DataFrame(index=evo.index)
+if 2024 in evo.columns and 2025 in evo.columns:
+    evo_var["Var % 25 vs 24"] = (evo[2025] - evo[2024]) / evo[2024] * 100
+if 2025 in evo.columns and 2026 in evo.columns:
+    evo_var["Var % 26 vs 25"] = (evo[2026] - evo[2025]) / evo[2025] * 100
 
-evo_ano = df[df["Tipo"] == "Actual"].groupby("Ano")["Valor"].sum()
-evo_q = df[df["Tipo"] == "Actual"].groupby(["Ano", "Trimestre"])["Valor"].sum().unstack(fill_value=0)
-
-colE, colF = st.columns([1, 1.4])
-with colE:
-    st.dataframe(
-        pd.DataFrame({"Total Actual": evo_ano}).style.format({"Total Actual": "R$ {:,.0f}"}),
-        use_container_width=True,
-    )
-with colF:
-    fig4 = go.Figure()
-    for q in ["Q1", "Q2", "Q3", "Q4"]:
-        if q in evo_q.columns:
-            fig4.add_bar(x=evo_q.index.astype(str), y=evo_q[q], name=q,
-                         hovertemplate=q + ": R$ %{y:,.0f}<extra></extra>")
-    fig4.update_layout(barmode="stack", height=320, margin=dict(t=10, b=10, l=10, r=10),
-                        legend=dict(orientation="h", y=1.1), plot_bgcolor="white",
-                        colorway=[NAVY, "#4C6EA8", "#9CA3AF", "#D6DEEC"])
-    st.plotly_chart(fig4, use_container_width=True)
+st.dataframe(
+    evo_var.style.format(lambda v: pct_str(v, signed=True)).map(color_var),
+    use_container_width=True,
+)
 
 st.markdown("---")
 st.caption(
