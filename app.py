@@ -1,3 +1,5 @@
+import math
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -7,7 +9,7 @@ import streamlit as st
 # automaticamente ao tema claro/escuro escolhido pelo usuário/SO.
 # ------------------------------------------------------------------
 st.set_page_config(
-    page_title="Painel Orçamentário — Marketing",
+    page_title="Dashboard Orçamentário — Marketing · Dorel Juvenile Brasil",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -22,8 +24,8 @@ BRAND_COLORS = {
     "QUINNY": "#2D2A26",
     "SAFETY 1ST": "#FCD920",
     "TINY LOVE": "#E01920",
-    "MAXI COSI": "#426E90",
-    "BEBE CONFORT": "#426E90",  # nome legado da Maxi-Cosi em alguns mercados
+    "MAXI COSI": "#0190BA",
+    "BEBE CONFORT": "#0190BA",  # nome legado da Maxi-Cosi em alguns mercados
     "VOYAGE": "#F05423",
     "COSCO": "#645EC0",
 }
@@ -82,7 +84,7 @@ st.markdown(
 # Formatação numérica — padrão brasileiro (ponto milhar, vírgula decimal)
 # ------------------------------------------------------------------
 def money_str(v, signed=False):
-    if v is None or pd.isna(v):
+    if v is None or pd.isna(v) or (isinstance(v, float) and not math.isfinite(v)):
         return "—"
     sign = "+" if (signed and v > 0) else ""
     neg = v < 0
@@ -93,7 +95,7 @@ def money_str(v, signed=False):
 
 
 def pct_str(v, signed=True, decimals=1):
-    if v is None or pd.isna(v):
+    if v is None or pd.isna(v) or (isinstance(v, float) and not math.isfinite(v)):
         return "—"
     s = f"{v:.{decimals}f}"
     s = s.replace(".", ",")
@@ -217,7 +219,7 @@ if f_categoria:
 st.markdown(
     f"""
     <div class="main-header">
-        <h1>Painel Orçamentário — Marketing</h1>
+        <h1>Dashboard Orçamentário — Marketing · Dorel Juvenile Brasil</h1>
         <p>Forecast x Actual 2024–2026 · Snapshot estático · Actual 2026 até {MESES_PT[ULTIMO_MES_ACTUAL_2026]}
         · dados consolidados e normalizados a partir da base original</p>
     </div>
@@ -334,10 +336,11 @@ tab_fa.loc[mask_futuro, ["Var R$", "Var %"]] = pd.NA
 tab_fa_t = tab_fa.set_index("Mês_nome")[["Forecast", "Actual", "Var R$", "Var %"]].T
 tab_fa_t = tab_fa_t.reindex(columns=[MESES_PT[m] for m in range(1, 13)])
 
-sty = tab_fa_t.style.format(money_str, subset=pd.IndexSlice[["Forecast", "Actual", "Var R$"], :])
-sty = sty.format(lambda v: pct_str(v, signed=True), subset=pd.IndexSlice[["Var %"], :])
-sty = sty.map(color_var, subset=pd.IndexSlice[["Var R$", "Var %"], :])
-st.dataframe(sty, use_container_width=True)
+tab_fa_display = tab_fa_t.astype(object).copy()
+money_rows = ["Forecast", "Actual", "Var R$"]
+tab_fa_display.loc[money_rows] = tab_fa_t.loc[money_rows].map(money_str)
+tab_fa_display.loc["Var %"] = tab_fa_t.loc["Var %"].map(lambda v: pct_str(v, signed=True))
+st.dataframe(tab_fa_display, use_container_width=True)
 
 # ------------------------------------------------------------------
 # 2. Fornecedores — lista completa, rolagem interna
@@ -356,13 +359,11 @@ tab_forn = pd.DataFrame({
     "% Participação": (forn.values / total_forn * 100) if total_forn else 0,
 })
 tab_forn["% Acumulado"] = tab_forn["% Participação"].cumsum()
-st.dataframe(
-    tab_forn.set_index("Fornecedor").style.format(
-        {"Valor": money_str, "% Participação": pct_str, "% Acumulado": pct_str}
-    ).bar(subset=["Valor"], color=NAVY),
-    use_container_width=True,
-    height=420,
-)
+tab_forn_display = tab_forn.set_index("Fornecedor").copy()
+tab_forn_display["Valor"] = tab_forn_display["Valor"].apply(money_str)
+tab_forn_display["% Participação"] = tab_forn_display["% Participação"].apply(pct_str)
+tab_forn_display["% Acumulado"] = tab_forn_display["% Acumulado"].apply(pct_str)
+st.dataframe(tab_forn_display, use_container_width=True, height=420)
 
 # ------------------------------------------------------------------
 # 3. Centro de Custo
@@ -381,13 +382,12 @@ cc_tab = cc_tab.sort_values("Actual", ascending=False).head(10)
 
 colA, colB = st.columns([1, 1])
 with colA:
-    st.dataframe(
-        cc_tab.style.format(
-            {"Actual": money_str, "Forecast": money_str, "Var R$": lambda v: money_str(v, signed=True),
-             "Var %": lambda v: pct_str(v, signed=True)}
-        ).map(color_var, subset=["Var R$", "Var %"]),
-        use_container_width=True,
-    )
+    cc_display = cc_tab.copy()
+    cc_display["Actual"] = cc_display["Actual"].apply(money_str)
+    cc_display["Forecast"] = cc_display["Forecast"].apply(money_str)
+    cc_display["Var R$"] = cc_display["Var R$"].apply(lambda v: money_str(v, signed=True))
+    cc_display["Var %"] = cc_display["Var %"].apply(lambda v: pct_str(v, signed=True))
+    st.dataframe(cc_display, use_container_width=True)
 with colB:
     cc_plot = cc_tab.sort_values("Actual")
     fig2 = go.Figure()
@@ -414,12 +414,11 @@ tab_cat = pd.DataFrame({
     "% Part.": (cat.values / total_cat * 100) if total_cat else 0,
 })
 tab_cat["% Acum."] = tab_cat["% Part."].cumsum()
-st.dataframe(
-    tab_cat.set_index("Categoria").style.format(
-        {"Gasto": money_str, "% Part.": pct_str, "% Acum.": pct_str}
-    ).bar(subset=["Gasto"], color=NAVY),
-    use_container_width=True,
-)
+tab_cat_display = tab_cat.set_index("Categoria").copy()
+tab_cat_display["Gasto"] = tab_cat_display["Gasto"].apply(money_str)
+tab_cat_display["% Part."] = tab_cat_display["% Part."].apply(pct_str)
+tab_cat_display["% Acum."] = tab_cat_display["% Acum."].apply(pct_str)
+st.dataframe(tab_cat_display, use_container_width=True)
 
 # ------------------------------------------------------------------
 # 5. Marca (2025+) — barras horizontais com cores oficiais
@@ -436,10 +435,10 @@ colC, colD = st.columns([1, 1.2])
 with colC:
     tab_marca = pd.DataFrame({"Marca": marca_agg.index, "Gasto": marca_agg.values})
     tab_marca["% Part."] = tab_marca["Gasto"] / tab_marca["Gasto"].sum() * 100
-    st.dataframe(
-        tab_marca.set_index("Marca").style.format({"Gasto": money_str, "% Part.": pct_str}),
-        use_container_width=True,
-    )
+    tab_marca_display = tab_marca.set_index("Marca").copy()
+    tab_marca_display["Gasto"] = tab_marca_display["Gasto"].apply(money_str)
+    tab_marca_display["% Part."] = tab_marca_display["% Part."].apply(pct_str)
+    st.dataframe(tab_marca_display, use_container_width=True)
 with colD:
     marca_plot = marca_agg.sort_values()
     cores = [BRAND_COLORS.get(m, BRAND_NEUTRAL) for m in marca_plot.index]
@@ -481,10 +480,10 @@ if 2024 in evo.columns and 2025 in evo.columns:
 if 2025 in evo.columns and 2026 in evo.columns:
     evo_var["Var % 26 vs 25"] = (evo[2026] - evo[2025]) / evo[2025] * 100
 
-st.dataframe(
-    evo_var.style.format(lambda v: pct_str(v, signed=True)).map(color_var),
-    use_container_width=True,
-)
+evo_var_display = evo_var.copy()
+for col in evo_var_display.columns:
+    evo_var_display[col] = evo_var_display[col].apply(lambda v: pct_str(v, signed=True))
+st.dataframe(evo_var_display, use_container_width=True)
 
 st.markdown("---")
 st.caption(
