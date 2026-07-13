@@ -135,7 +135,12 @@ def colored_pct(v, signed=True, decimals=1):
 def render_table(df, max_height=None):
     """Renderiza DataFrame como HTML puro via st.markdown — não passa pelo pyarrow
     (diferente de st.dataframe/st.table, que serializam via Arrow por baixo).
-    Aceita HTML nas células (para cor) porque escape=False."""
+    Aceita HTML nas células (para cor) porque escape=False.
+    index.name/columns.name são zerados: sem isso, o to_html() renderiza o nome
+    do índice (ex.: "Fornecedor", "Tipo") como uma linha extra em vez de rótulo."""
+    df = df.copy()
+    df.index.name = None
+    df.columns.name = None
     html = df.to_html(classes="dorel-table", border=0, na_rep="—", escape=False)
     scroll_style = f"max-height:{max_height}px; overflow-y:auto;" if max_height else ""
     st.markdown(
@@ -145,7 +150,7 @@ def render_table(df, max_height=None):
         .dorel-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .dorel-table th {
             text-align: right; padding: 6px 10px; border-bottom: 2px solid rgba(128,128,128,0.4);
-            font-weight: 700; position: sticky; top: 0; background-color: var(--background-color);
+            font-weight: 700;
         }
         .dorel-table th:first-child, .dorel-table td:first-child { text-align: left; }
         .dorel-table td { text-align: right; padding: 5px 10px; border-bottom: 1px solid rgba(128,128,128,0.15); }
