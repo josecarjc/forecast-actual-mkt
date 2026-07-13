@@ -132,16 +132,19 @@ def colored_pct(v, signed=True, decimals=1):
     return f'<span style="color:{color};font-weight:600">{s}</span>'
 
 
-def render_table(df, max_height=None):
+def render_table(df, max_height=None, index_label=None):
     """Renderiza DataFrame como HTML puro via st.markdown — não passa pelo pyarrow
     (diferente de st.dataframe/st.table, que serializam via Arrow por baixo).
     Aceita HTML nas células (para cor) porque escape=False.
     index.name/columns.name são zerados: sem isso, o to_html() renderiza o nome
-    do índice (ex.: "Fornecedor", "Tipo") como uma linha extra em vez de rótulo."""
+    do índice (ex.: "Fornecedor", "Tipo") como uma linha extra em vez de rótulo.
+    index_label injeta o rótulo direto na célula de cabeçalho (sem esse problema)."""
     df = df.copy()
     df.index.name = None
     df.columns.name = None
     html = df.to_html(classes="dorel-table", border=0, na_rep="—", escape=False)
+    if index_label:
+        html = html.replace("<th></th>", f"<th>{index_label}</th>", 1)
     scroll_style = f"max-height:{max_height}px; overflow-y:auto;" if max_height else ""
     st.markdown(
         f'<div style="overflow-x:auto; {scroll_style}">{html}</div>'
@@ -386,7 +389,7 @@ plain_rows = ["Forecast", "Actual"]
 tab_fa_display.loc[plain_rows] = tab_fa_t.loc[plain_rows].map(money_str)
 tab_fa_display.loc["Var R$"] = tab_fa_t.loc["Var R$"].map(lambda v: colored_money(v, signed=True))
 tab_fa_display.loc["Var %"] = tab_fa_t.loc["Var %"].map(lambda v: colored_pct(v, signed=True))
-render_table(tab_fa_display)
+render_table(tab_fa_display, index_label="Tipo")
 
 # ------------------------------------------------------------------
 # 2. Fornecedores — lista completa, rolagem interna
@@ -409,7 +412,7 @@ tab_forn_display = tab_forn.set_index("Fornecedor").copy()
 tab_forn_display["Valor"] = tab_forn_display["Valor"].apply(money_str)
 tab_forn_display["% Participação"] = tab_forn_display["% Participação"].apply(pct_str)
 tab_forn_display["% Acumulado"] = tab_forn_display["% Acumulado"].apply(pct_str)
-render_table(tab_forn_display, max_height=420)
+render_table(tab_forn_display, max_height=420, index_label="Histórico")
 
 # ------------------------------------------------------------------
 # 3. Centro de Custo
@@ -433,7 +436,7 @@ with colA:
     cc_display["Forecast"] = cc_display["Forecast"].apply(money_str)
     cc_display["Var R$"] = cc_display["Var R$"].apply(lambda v: colored_money(v, signed=True))
     cc_display["Var %"] = cc_display["Var %"].apply(lambda v: colored_pct(v, signed=True))
-    render_table(cc_display)
+    render_table(cc_display, index_label="Centro de Custo")
 with colB:
     cc_plot = cc_tab.sort_values("Actual")
     fig2 = go.Figure()
@@ -464,14 +467,14 @@ tab_cat_display = tab_cat.set_index("Categoria").copy()
 tab_cat_display["Gasto"] = tab_cat_display["Gasto"].apply(money_str)
 tab_cat_display["% Part."] = tab_cat_display["% Part."].apply(pct_str)
 tab_cat_display["% Acum."] = tab_cat_display["% Acum."].apply(pct_str)
-render_table(tab_cat_display)
+render_table(tab_cat_display, index_label="Categoria")
 
 # ------------------------------------------------------------------
 # 5. Marca (2025+) — barras horizontais com cores oficiais
 # ------------------------------------------------------------------
 st.markdown('<div class="section-header">5 · MARCA (2025+)</div>', unsafe_allow_html=True)
 st.caption("Marca não existe na base de 2024 — comparação restrita a 2025 e 2026. "
-           "Cores identificam a marca (identidade visual), não indicam status — só vermelho/verde nas tabelas de variação têm esse sentido.")
+           "Cores = identidade da marca, não status.")
 
 marca_df = actual[actual["Ano"] >= 2025]
 marca_agg = marca_df.groupby("Marca")["Valor"].sum().sort_values(ascending=False)
@@ -484,7 +487,7 @@ with colC:
     tab_marca_display = tab_marca.set_index("Marca").copy()
     tab_marca_display["Gasto"] = tab_marca_display["Gasto"].apply(money_str)
     tab_marca_display["% Part."] = tab_marca_display["% Part."].apply(pct_str)
-    render_table(tab_marca_display)
+    render_table(tab_marca_display, index_label="Marca")
 with colD:
     marca_plot = marca_agg.sort_values()
     cores = [BRAND_COLORS.get(m, BRAND_NEUTRAL) for m in marca_plot.index]
@@ -529,7 +532,27 @@ if 2025 in evo.columns and 2026 in evo.columns:
 evo_var_display = evo_var.copy()
 for col in evo_var_display.columns:
     evo_var_display[col] = evo_var_display[col].apply(lambda v: colored_pct(v, signed=True))
-render_table(evo_var_display)
+render_table(evo_var_display, index_label="Quarter")
+
+# ------------------------------------------------------------------
+# 6b. Comparativo anual — resposta rápida "o ano fechou melhor ou pior".
+# 2026 é parcial, então a comparação usa o mesmo período (jan–último mês
+# com Actual) nos três anos, não o total fechado — senão o resultado engana.
+# ------------------------------------------------------------------
+st.caption(f"Comparativo anual — mesmo período em todos os anos (jan–{MESES_PT[ULTIMO_MES_ACTUAL_2026]}), "
+           "não o total fechado, pra 2026 parcial não distorcer a leitura.")
+
+anual = (
+    df[(df["Tipo"] == "Actual") & (df["Mês"] <= ULTIMO_MES_ACTUAL_2026)]
+    .groupby("Ano")["Valor"].sum()
+)
+anual_df = pd.DataFrame({"Total (Actual)": anual})
+anual_df["Var % vs ano anterior"] = anual_df["Total (Actual)"].pct_change() * 100
+
+anual_display = anual_df.copy()
+anual_display["Total (Actual)"] = anual_df["Total (Actual)"].apply(money_str)
+anual_display["Var % vs ano anterior"] = anual_df["Var % vs ano anterior"].apply(lambda v: colored_pct(v, signed=True))
+render_table(anual_display, index_label="Ano")
 
 st.markdown("---")
 st.caption(
