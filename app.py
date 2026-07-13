@@ -9,7 +9,7 @@ import streamlit as st
 # automaticamente ao tema claro/escuro escolhido pelo usuário/SO.
 # ------------------------------------------------------------------
 st.set_page_config(
-    page_title="Dashboard Orçamentário — Marketing · Dorel Juvenile Brasil",
+    page_title="Painel Orçamentário — Marketing · Dorel",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -115,18 +115,37 @@ def color_var(v):
     return ""
 
 
-def render_table(df):
+def colored_money(v, signed=True):
+    """Mesma lógica visual do antigo color_var, mas embutida no HTML — não usa Styler/Arrow."""
+    s = money_str(v, signed=signed)
+    if v is None or pd.isna(v) or (isinstance(v, float) and not math.isfinite(v)) or v == 0:
+        return s
+    color = RED if v > 0 else GREEN
+    return f'<span style="color:{color};font-weight:600">{s}</span>'
+
+
+def colored_pct(v, signed=True, decimals=1):
+    s = pct_str(v, signed=signed, decimals=decimals)
+    if v is None or pd.isna(v) or (isinstance(v, float) and not math.isfinite(v)) or v == 0:
+        return s
+    color = RED if v > 0 else GREEN
+    return f'<span style="color:{color};font-weight:600">{s}</span>'
+
+
+def render_table(df, max_height=None):
     """Renderiza DataFrame como HTML puro via st.markdown — não passa pelo pyarrow
-    (diferente de st.dataframe/st.table, que serializam via Arrow por baixo)."""
-    html = df.to_html(classes="dorel-table", border=0, na_rep="—")
+    (diferente de st.dataframe/st.table, que serializam via Arrow por baixo).
+    Aceita HTML nas células (para cor) porque escape=False."""
+    html = df.to_html(classes="dorel-table", border=0, na_rep="—", escape=False)
+    scroll_style = f"max-height:{max_height}px; overflow-y:auto;" if max_height else ""
     st.markdown(
-        f'<div style="overflow-x:auto;">{html}</div>'
+        f'<div style="overflow-x:auto; {scroll_style}">{html}</div>'
         """
         <style>
         .dorel-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .dorel-table th {
             text-align: right; padding: 6px 10px; border-bottom: 2px solid rgba(128,128,128,0.4);
-            font-weight: 700;
+            font-weight: 700; position: sticky; top: 0; background-color: var(--background-color);
         }
         .dorel-table th:first-child, .dorel-table td:first-child { text-align: left; }
         .dorel-table td { text-align: right; padding: 5px 10px; border-bottom: 1px solid rgba(128,128,128,0.15); }
@@ -240,7 +259,7 @@ if f_categoria:
 st.markdown(
     f"""
     <div class="main-header">
-        <h1>Dashboard Orçamentário — Marketing · Dorel Juvenile Brasil</h1>
+        <h1>Painel Orçamentário — Marketing · Dorel</h1>
         <p>Forecast x Actual 2024–2026 · Snapshot estático · Actual 2026 até {MESES_PT[ULTIMO_MES_ACTUAL_2026]}
         · dados consolidados e normalizados a partir da base original</p>
     </div>
@@ -358,9 +377,10 @@ tab_fa_t = tab_fa.set_index("Mês_nome")[["Forecast", "Actual", "Var R$", "Var %
 tab_fa_t = tab_fa_t.reindex(columns=[MESES_PT[m] for m in range(1, 13)])
 
 tab_fa_display = tab_fa_t.astype(object).copy()
-money_rows = ["Forecast", "Actual", "Var R$"]
-tab_fa_display.loc[money_rows] = tab_fa_t.loc[money_rows].map(money_str)
-tab_fa_display.loc["Var %"] = tab_fa_t.loc["Var %"].map(lambda v: pct_str(v, signed=True))
+plain_rows = ["Forecast", "Actual"]
+tab_fa_display.loc[plain_rows] = tab_fa_t.loc[plain_rows].map(money_str)
+tab_fa_display.loc["Var R$"] = tab_fa_t.loc["Var R$"].map(lambda v: colored_money(v, signed=True))
+tab_fa_display.loc["Var %"] = tab_fa_t.loc["Var %"].map(lambda v: colored_pct(v, signed=True))
 render_table(tab_fa_display)
 
 # ------------------------------------------------------------------
@@ -384,7 +404,7 @@ tab_forn_display = tab_forn.set_index("Fornecedor").copy()
 tab_forn_display["Valor"] = tab_forn_display["Valor"].apply(money_str)
 tab_forn_display["% Participação"] = tab_forn_display["% Participação"].apply(pct_str)
 tab_forn_display["% Acumulado"] = tab_forn_display["% Acumulado"].apply(pct_str)
-render_table(tab_forn_display)
+render_table(tab_forn_display, max_height=420)
 
 # ------------------------------------------------------------------
 # 3. Centro de Custo
@@ -406,8 +426,8 @@ with colA:
     cc_display = cc_tab.copy()
     cc_display["Actual"] = cc_display["Actual"].apply(money_str)
     cc_display["Forecast"] = cc_display["Forecast"].apply(money_str)
-    cc_display["Var R$"] = cc_display["Var R$"].apply(lambda v: money_str(v, signed=True))
-    cc_display["Var %"] = cc_display["Var %"].apply(lambda v: pct_str(v, signed=True))
+    cc_display["Var R$"] = cc_display["Var R$"].apply(lambda v: colored_money(v, signed=True))
+    cc_display["Var %"] = cc_display["Var %"].apply(lambda v: colored_pct(v, signed=True))
     render_table(cc_display)
 with colB:
     cc_plot = cc_tab.sort_values("Actual")
@@ -503,7 +523,7 @@ if 2025 in evo.columns and 2026 in evo.columns:
 
 evo_var_display = evo_var.copy()
 for col in evo_var_display.columns:
-    evo_var_display[col] = evo_var_display[col].apply(lambda v: pct_str(v, signed=True))
+    evo_var_display[col] = evo_var_display[col].apply(lambda v: colored_pct(v, signed=True))
 render_table(evo_var_display)
 
 st.markdown("---")
