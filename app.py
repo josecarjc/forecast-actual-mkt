@@ -340,7 +340,7 @@ tab_fa_display = tab_fa_t.astype(object).copy()
 money_rows = ["Forecast", "Actual", "Var R$"]
 tab_fa_display.loc[money_rows] = tab_fa_t.loc[money_rows].map(money_str)
 tab_fa_display.loc["Var %"] = tab_fa_t.loc["Var %"].map(lambda v: pct_str(v, signed=True))
-st.dataframe(tab_fa_display, use_container_width=True)
+st.table(tab_fa_display)
 
 # ------------------------------------------------------------------
 # 2. Fornecedores — lista completa, rolagem interna
@@ -363,7 +363,7 @@ tab_forn_display = tab_forn.set_index("Fornecedor").copy()
 tab_forn_display["Valor"] = tab_forn_display["Valor"].apply(money_str)
 tab_forn_display["% Participação"] = tab_forn_display["% Participação"].apply(pct_str)
 tab_forn_display["% Acumulado"] = tab_forn_display["% Acumulado"].apply(pct_str)
-st.dataframe(tab_forn_display, use_container_width=True, height=420)
+st.table(tab_forn_display)
 
 # ------------------------------------------------------------------
 # 3. Centro de Custo
@@ -387,7 +387,7 @@ with colA:
     cc_display["Forecast"] = cc_display["Forecast"].apply(money_str)
     cc_display["Var R$"] = cc_display["Var R$"].apply(lambda v: money_str(v, signed=True))
     cc_display["Var %"] = cc_display["Var %"].apply(lambda v: pct_str(v, signed=True))
-    st.dataframe(cc_display, use_container_width=True)
+    st.table(cc_display)
 with colB:
     cc_plot = cc_tab.sort_values("Actual")
     fig2 = go.Figure()
@@ -418,7 +418,7 @@ tab_cat_display = tab_cat.set_index("Categoria").copy()
 tab_cat_display["Gasto"] = tab_cat_display["Gasto"].apply(money_str)
 tab_cat_display["% Part."] = tab_cat_display["% Part."].apply(pct_str)
 tab_cat_display["% Acum."] = tab_cat_display["% Acum."].apply(pct_str)
-st.dataframe(tab_cat_display, use_container_width=True)
+st.table(tab_cat_display)
 
 # ------------------------------------------------------------------
 # 5. Marca (2025+) — barras horizontais com cores oficiais
@@ -438,7 +438,7 @@ with colC:
     tab_marca_display = tab_marca.set_index("Marca").copy()
     tab_marca_display["Gasto"] = tab_marca_display["Gasto"].apply(money_str)
     tab_marca_display["% Part."] = tab_marca_display["% Part."].apply(pct_str)
-    st.dataframe(tab_marca_display, use_container_width=True)
+    st.table(tab_marca_display)
 with colD:
     marca_plot = marca_agg.sort_values()
     cores = [BRAND_COLORS.get(m, BRAND_NEUTRAL) for m in marca_plot.index]
@@ -483,7 +483,7 @@ if 2025 in evo.columns and 2026 in evo.columns:
 evo_var_display = evo_var.copy()
 for col in evo_var_display.columns:
     evo_var_display[col] = evo_var_display[col].apply(lambda v: pct_str(v, signed=True))
-st.dataframe(evo_var_display, use_container_width=True)
+st.table(evo_var_display)
 
 st.markdown("---")
 st.caption(
